@@ -1,0 +1,297 @@
+
+At first, I import 4 different dataset from SQL local server through ODBC with Encryption; also join those datset with right join in single SQL Query for training and testing data.
+
+```{r}
+library(RODBC)
+con <- odbcConnect("DESKTOP-FV1I7CQ", uid = "SanketDatabase", pwd = "patil")
+
+test <- sqlQuery(con, "select Demo.dbo.[test1-6].PassengerId,Demo.dbo.[test1-6].Pclass,Demo.dbo.[test1-6].Name, Demo.dbo.[test1-6].Sex, Demo.dbo.[test1-6].Age,Demo.dbo.[test1-6].SibSp,Demo.dbo.[test7-12].Parch, Demo.dbo.[test7-12].Ticket, Demo.dbo.[test7-12].Fare, Demo.dbo.[test7-12].Cabin, Demo.dbo.[test7-12].Embarked 
+from.Demo.dbo.[test1-6] right join Demo.dbo.[test7-12] on Demo.dbo.[test1-6].PassengerId=Demo.dbo.[test7-12].PassengerId")
+
+train<- sqlQuery(con, "select Demo.dbo.[train1-6].PassengerId, Demo.dbo.[train1-6].Survived, Demo.dbo.[train1-6].Pclass, Demo.dbo.[train1-6].Name, Demo.dbo.[train1-6].Sex, Demo.dbo.[train1-6].Age, Demo.dbo.[train7-13].SibSp, Demo.dbo.[train7-13].Parch, Demo.dbo.[train7-13].Ticket, Demo.dbo.[train7-13].Fare, Demo.dbo.[train7-13].Cabin, Demo.dbo.[train7-13].Embarked
+from Demo.dbo.[train1-6] right join Demo.dbo.[train7-13] on Demo.dbo.[train1-6].PassengerId=Demo.dbo.[train7-13].PassengerId")
+
+# library(readr)
+# train <- read_csv("C:/Users/sanket/Desktop/Titanic/train.csv")
+View(train)
+#library(readr)
+#test <- read_csv("C:/Users/sanket/Desktop/Titanic/test.csv")
+View(test)
+
+```
+
+Now, to overview the data we need to visualise the data in order to get meaningful insights.
+This is a Data Visualization stage.
+1.Total survival rate
+```{r}
+library(ggplot2)
+ggplot(train, aes(x= Survived))+ geom_bar()+ theme_bw()+ labs(y= "Passenger", title = "Survival Rate")
+```
+2.Survival rate by gender
+```{r warning=FALSE}
+train$Survived<-as.factor(train$Survived)
+ggplot(train, aes(x= Sex, fill = Survived)) + geom_bar() + theme_bw()+ labs(y= "Passenger", title = "Survival Rate by Gender")
+```
+3.Survival rate by class
+```{r}
+train$Pclass<-as.factor(train$Pclass)
+ggplot(train, aes(x= Pclass, fill = Survived)) + geom_bar() + theme_bw()+ labs(y= "Passenger", title = "Survival Rate by Class")
+```
+4.Survival rate by gender in each class
+```{r}
+ggplot(train, aes(x= Sex, fill = Survived)) + geom_bar() + theme_bw()+ facet_wrap(~Pclass)+labs(y= "Passenger", title = "Survival Rate by Gender in each Class")
+```
+5.Survival Rate by age
+```{r}
+ggplot(train, aes(x = Age, fill = Survived)) + geom_histogram(binwidth = 5) + theme_bw()+ labs(y="Passenger", x = "Age(Binwidth = 5)", title = "Survival rate by Age") 
+```
+6.Survival for younger people is more ? Let's see
+```{r}
+ggplot(train, aes(x = Age, y = Survived)) + geom_boxplot() + theme_bw()+ labs(y="Survival", title = "Survival rate by Age Boxplot")
+```
+7.Survival rate by Sex, Passenger class & Age
+```{r}
+ggplot(train, aes(x= Age, fill= Survived))+ theme_bw()+ facet_wrap(Sex~Pclass) + geom_histogram(binwidth = 5) + labs(y="Passengers", title = "Survival rate by Sex, Pclass & Age ")
+```
+Now, I have generally came to some conclusion about the dependent variables, but still there could be NA values in the variable columns that should be taken care of.This is Data Cleaning stage.
+Firstly, I should see the data structure to get more information over Data types
+```{r}
+str(train)
+str(test)
+```
+Furthermore, I check Na values in percentage for each variable for both the datasets i.e.train & test
+```{r}
+round(apply(train, 2, function(x) sum(is.na(x)/length(x))*100),2)
+round(apply(test, 2, function(x) sum(is.na(x)/length(x))*100),2)
+#table(is.na(train$Age))
+#table(is.na(train$Embarked))
+#table(is.na(train$Fare))
+#table(is.na(test$Fare))
+print("All above values are in percentage")
+```
+Now, I know there are NA values in which columns but I wish to clean both the datasets together. For this purpose I am assigning dummy column in datasets so as to later use them to Identify and again divide into train & test datasets as well as combining both the datasets to GLOBAL Dataset.
+```{r}
+train$IsTrainData<- TRUE
+test$IsTrainData<- FALSE
+test$Survived<- NA
+globaldata<- rbind(train,test)
+table(globaldata$IsTrainData)
+```
+To view global data distribution
+```{r}
+summary(globaldata)
+```
+
+I cannot use the Name column from the dataset directly as there are many unique observations; and that will not help our model. In order to extract meaningful data, I can use title of each passenger and those could be helpful for predications on latter stages.
+```{r}
+#adding Title column
+globaldata$Title<-sapply(globaldata$Name, FUN=function(x) {strsplit(x, split='[,.]')[[1]][2]})
+globaldata$Title<- sub(' ', '', globaldata$Title)
+table(globaldata$Title)
+# combining titles
+#globaldata$Title[globaldata$Title %in% c('Mme', 'Mlle')] <- 'Mlle'
+#globaldata$Title[globaldata$Title %in% c('Capt', 'Don', 'Major', 'Sir')] <- 'Sir'
+#globaldata$Title[globaldata$Title %in% c('Dona', 'Lady', 'the Countess', 'Jonkheer')] <- 'Lady'
+
+```
+As there are very less missing values in columns "Embarked" and "Fare"; Instead of predicting missing values I would fill those values by their respective medians.
+```{r}
+table(globaldata$Embarked)
+globaldata[is.na(globaldata$Embarked),"Embarked"]<- "S"
+#AgeMedian<- median(globaldata$Age,na.rm = TRUE)
+#globaldata[is.na(globaldata$Age),"Age"]<- AgeMedian
+FareMedian<- median(globaldata$Fare,na.rm = TRUE)
+globaldata[is.na(globaldata$Fare),"Fare"]<- FareMedian
+```
+Before dealing with the NA values in Age, I should make categorical casting so I can predict Age values by linear regression model in later stages.
+```{r}
+globaldata$Pclass<-as.factor(globaldata$Pclass)
+globaldata$Sex<-as.factor(globaldata$Sex)
+globaldata$Embarked<-as.factor(globaldata$Embarked)
+globaldata$Title <- as.factor(globaldata$Title)
+str(globaldata)
+```
+
+Before predicting NA values for missing Age of the passenger, I should view spread of the data(Age) in order to predict more accurately. 
+```{r}
+boxplot(globaldata$Age)
+```
+By observing boxplot we see data outlier above upper whisker i.e 66; thus, I must ignore those data to fit regression model well.
+```{r}
+UpperWhisker<-boxplot.stats(globaldata$Age)$stats[5]
+filter <- globaldata$Age < UpperWhisker
+boxplot.stats(globaldata$Age)$stats[5]
+```
+Now, I will use linear model to predict missing NA values in "Age" column and fill into Age column of globaldata.
+```{r}
+AgeEquation<- "Age~ Pclass+Sex+SibSp+Parch+Embarked+Fare+Title"
+AgeModel<- lm(formula =AgeEquation, data = globaldata[filter,] )
+#Random forest Age prediction
+#library(rpart)
+#AgeModel1<- rpart(formula =AgeEquation, data = globaldata[filter1,] )
+#library(rpart.plot)
+#prp(AgeModel1)
+#predict and fill NA Age values
+NA.RowsAge<-globaldata[is.na(globaldata$Age),c("Pclass","Sex","SibSp","Parch","Embarked","Fare","Title")]
+AgePredictions<-predict(AgeModel, newdata = NA.RowsAge)
+globaldata[is.na(globaldata$Age),"Age"]<- AgePredictions
+table(is.na(globaldata$Age))
+```
+At this point the data on which I would work is cleaned. Next step is to split the dataset in original form. i.e. in Train & Test data. I will not use this tast data untill final stage of prediction.
+```{r}
+train2<- globaldata[globaldata$IsTrainData== TRUE,]
+test2<- globaldata[globaldata$IsTrainData== FALSE,]
+View(train2)
+View(test2)
+```
+I have now only training Data, I will split data in 75:25 ratio as Training dataset and Testing dataset resepctively.
+```{r warning=FALSE}
+library(caTools)
+split <- sample.split(train2$Survived, SplitRatio= 0.75)
+training_set <- subset(train2, split== T)
+test_set <- subset(train2, split== F)
+View(training_set)
+View(test_set)
+```
+From Data visualisation, I know that there is a data imbalance in target variable Survived.
+```{r}
+table(training_set$Survived)
+```
+
+Now, I will create different datasets with 3 sampling methods for better results.
+```{r}
+library(ROSE)
+under<- ovun.sample(Survived~Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title, data = training_set,
+                    method = "under", N = 512 )$data
+over<- ovun.sample(Survived~Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title, data = training_set,
+                    method = "over", N = 824 )$data
+both<- ovun.sample(Survived~Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title, data = training_set,
+                   method = "both",p= 0.5,seed = 232, N = 668 )$data
+table(under$Survived)
+table(over$Survived)
+table(both$Survived)
+```
+categorical casting for "Survived" after spliting into data sets because I did not want NA values
+```{r}
+training_set$Survived<-as.factor(training_set$Survived)
+test_set$Survived<-as.factor(test_set$Survived)
+```
+From this point I am heading towards machine learning part of this project. To supervise the model accurately I need to selcet features i.e. important variables for target variable "Survived"
+```{r}
+library(Boruta)
+library(caret)
+library(randomForest)
+
+set.seed(123)
+boruta<-Boruta(Survived~Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title, data = training_set, doTrace = 2, maxRuns= 50)
+print(boruta)
+plot(boruta)
+```
+I would like to see feature importance and final formula for ML models.
+```{r}
+attStats(boruta)
+getConfirmedFormula(boruta)
+```
+Now, I will create some ML models as well as predict Survival for original test data. Further, I would like to see cinfusion matrix in order to evaluate the ML model accuracy & performance.
+
+1. Randomforest model       
+```{r}
+SurvivedEquation<-"Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title"
+SurvivedFormula<-as.formula(SurvivedEquation)
+library(randomForest)
+Model<-randomForest(formula= SurvivedFormula, data = under, ntree = 500, mtry = 2, nodesize = 0.005*nrow(under))
+
+#falls confusion matrix
+library(caret)
+p <- predict(Model, under)
+confusionMatrix(p,under$Survived)
+```
+we should always check final performance with testing data
+```{r}
+#correct confusion matrix
+library(caret)
+p <- predict(Model, test_set)
+confusionMatrix(p,test_set$Survived)
+```
+2.Randomforest with repeated cross validation
+```{r}
+library(caret)
+Model2<- train(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title, under,method= "rf",
+               trControl=trainControl(method= "repeatedcv", number= 10,verboseIter= TRUE) )
+
+p <- predict(Model2, test_set)
+confusionMatrix(p,test_set$Survived)
+```
+3.Logistic regression model
+```{r}
+library(glmnet)
+Model3<- glm(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked+ Title, data =under, family = "binomial")
+
+p <- predict(Model3, test_set, type = "response")
+head(p)
+p2<- ifelse(p>0.5, 1, 0)
+table(Predicted = p2, Actual = test_set$Survived)
+
+```
+4.Gradient boosting machine model
+```{r}
+library(caret)
+fitControl <- trainControl( method = "repeatedcv", number = 4, repeats = 2)
+Model4 <- train(Survived ~ Pclass + Sex + Age + SibSp + Parch + Fare + Embarked + Title, data = under, method = "gbm", trControl = fitControl,verbose = FALSE)
+
+p <- predict(Model4, test_set)
+confusionMatrix(p,test_set$Survived)
+
+```
+5.eXtreme gradient boosting model
+```{r}
+library(caret)
+TrainControl <- trainControl( method = "repeatedcv", number = 10, repeats = 4)
+Model5<- train(Survived ~ Pclass + Sex + Age+ Title+ SibSp + Fare + Parch + Embarked,data = training_set, method = "xgbTree", trControl = TrainControl,verbose = FALSE)
+
+p <- predict(Model5, test_set)
+confusionMatrix(p,test_set$Survived)
+```
+
+
+Now, I would like to asses ML model's results. For this, I will see probability distribution of predictions over test dataset.
+```{r}
+library(ROCR)
+prob<- predict(Model, test_set, type= "prob")
+head(prob)
+hist(prob)
+```
+For better assessment of the model result, I will plot Receiver operating characteristic curve.
+```{r}
+prob<- prediction(prob[,2], test_set$Survived)
+roc<- performance(prob,"tpr", "fpr")
+plot(roc, colorize=T)
+abline(a=0,b=1)
+
+prob2<- predict(Model4, test_set, type= "prob")
+prob2<- prediction(prob2[,2], test_set$Survived)
+roc2<- performance(prob2,"tpr","fpr")
+plot(roc2, colorize=F,add= T)
+
+
+#roc<- performance(prob,"tpr", "fpr")
+#plot(roc, colorize=T)
+```
+For numerical assesment and comparison I would calculate area under the ROC curve in percentage.
+```{r}
+AUC<-  performance(prob,"auc")
+AUC<- unlist(slot(AUC,"y.values"))
+round(AUC,2)*100
+```
+This is a final stage where I know my best ML model and I will make my predictions in a dataframe.
+```{r}
+PredictionSurvived <-predict(Model, newdata = test2)
+PassengerId<- test2$PassengerId
+Submission_df<-as.data.frame(PassengerId)
+Submission_df$Survived<- PredictionSurvived
+```
+Convert the dataframe to the CSV file
+```{r}
+write.csv(Submission_df, file = "titanic_Submission.csv", row.names = F)
+```
+
